@@ -6,6 +6,7 @@ Word Swap by BERT-Masked LM.
 
 import itertools
 import re
+import math
 
 import torch
 from transformers import AutoModelForMaskedLM, AutoTokenizer
@@ -222,14 +223,18 @@ class WordSwapMaskedLM(WordSwap):
                     replacement_words.append(token)
             return replacement_words
         else:
+            # limit the max try under 10000
+            max_candidate_num = math.ceil(10000 ** (1 / len(target_ids_pos)))
+
             # Word to replace is tokenized as multiple sub-words
-            top_preds = [id_preds[i] for i in target_ids_pos]
+            top_preds = [id_preds[i][:max_candidate_num] for i in target_ids_pos]
             products = itertools.product(*top_preds)
             combination_results = []
             # Original BERT-Attack implement uses cross-entropy loss
             cross_entropy_loss = torch.nn.CrossEntropyLoss(reduction="none")
             target_ids_pos_tensor = torch.tensor(target_ids_pos)
             word_tensor = torch.zeros(len(target_ids_pos), dtype=torch.long)
+
             for bpe_tokens in products:
                 for i in range(len(bpe_tokens)):
                     word_tensor[i] = bpe_tokens[i]
@@ -256,7 +261,9 @@ class WordSwapMaskedLM(WordSwap):
             with torch.no_grad():
                 pred_probs = self._language_model(**current_inputs)[0][0]
             top_probs, top_ids = torch.topk(pred_probs, self.max_candidates)
+
             id_preds = top_ids.cpu()
+
             masked_lm_logits = pred_probs.cpu()
 
             transformed_texts = []
